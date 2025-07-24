@@ -226,6 +226,4 @@ correlation_coefficient <- cor(colorado_data_final$median_house_income,
                                use = "pairwise.complete.obs")
 
 print(paste("Pearson Correlation Coefficient between Median Income and Percentage 50% Rent Burdened:", round(correlation_coefficient, 3), ". This correlation coefficient tells you that it's not simply 'richer counties have less severe rent burden' or 'poorer counties have more severe rent burden' in a straightforward, linear way. The situation is more nuanced and complex, driven by a blend of income distribution, actual housing costs, and other economic factors specific to each county."))
-
-knitr::include_graphics("images/coloardo counties analysis.png")
 ```

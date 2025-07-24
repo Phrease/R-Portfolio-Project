@@ -1,7 +1,7 @@
 # R-Portfolio-Project
  
 Colorado County Economic Analysis
-An exploratory data analysis of economic indicators across various counties in Colorado, focusing on employment rates, population growth, and median income.
+An exploratory data analysis of economic indicators across various counties in Colorado, focusing on rent burden and median income.
 
 View the Final Portfolio
 For the best viewing experience, you can see the final, rendered portfolio report here:

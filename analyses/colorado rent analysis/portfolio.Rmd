@@ -37,7 +37,7 @@ A highly motivated and detail-oriented data analyst with a passion for uncoverin
 
 ---
 
-### **Project: Analyzing Colorado Counties via Rent Burden & Median Household Income**
+### **Project 1: Analyzing Colorado Counties via Rent Burden & Median Household Income**
 
 * **Objective:** To analyze historical housing data for Colorado counties to identify trends in pricing, inventory, and sales volume over the last three years.
 
@@ -227,3 +227,13 @@ correlation_coefficient <- cor(colorado_data_final$median_house_income,
 
 print(paste("Pearson Correlation Coefficient between Median Income and Percentage 50% Rent Burdened:", round(correlation_coefficient, 3), ". This correlation coefficient tells you that it's not simply 'richer counties have less severe rent burden' or 'poorer counties have more severe rent burden' in a straightforward, linear way. The situation is more nuanced and complex, driven by a blend of income distribution, actual housing costs, and other economic factors specific to each county."))
 ```
+
+### **Project 2: Analyzing Colorado Counties via Rent Burden & Median Household Income**
+
+* **Objective:** To analyze historical housing data for Colorado counties to identify trends in pricing, inventory, and sales volume over the last three years.
+
+* **Description:** This project involved sourcing data from the ACS, going back to 2022 (with 5 year estimates), cleaning and wrangling the data using `dplyr`, and performing time-series analysis to identify seasonal patterns and long-term trends. The final output was an R Markdown report with interactive visualizations created using `ggplot2` and `tidycensus`.
+
+* **Key Skills Demonstrated:** Data Cleaning, Data Wrangling, Time-Series Analysis, Data Visualization, R Markdown Reporting.
+
+* **Code:** [Link to GitHub Repository for this Project](https://github.com/Phrease/R-Portfolio-Project/tree/main/analyses/colorado%20rent%20analysis)

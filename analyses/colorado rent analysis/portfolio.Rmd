@@ -25,7 +25,7 @@ A highly motivated and detail-oriented data analyst with a passion for uncoverin
 
 ### **Skills**
 
-* **Programming Languages:** R (Advanced), SQL (Advances), Python (Intermediate)
+* **Programming Languages:** R (Advanced), SQL (Advanced), Python (Intermediate)
 * **R Libraries:** `dplyr`, `ggplot2`, `tidyr`, `readr`, `shiny`, `rmarkdown`, `lubridate`
 * **Data Visualization:** ggplot2, Tableau, Power BI
 * **Databases:** PostgreSQL, MySQL, SQLite
@@ -37,7 +37,7 @@ A highly motivated and detail-oriented data analyst with a passion for uncoverin
 
 ---
 
-### **Project 1: Analyzing Colorado Counties via Rent Burden & Median Household Income**
+### **Project: Analyzing Colorado Counties via Rent Burden & Median Household Income**
 
 * **Objective:** To analyze historical housing data for Colorado counties to identify trends in pricing, inventory, and sales volume over the last three years.
 
@@ -45,8 +45,7 @@ A highly motivated and detail-oriented data analyst with a passion for uncoverin
 
 * **Key Skills Demonstrated:** Data Cleaning, Data Wrangling, Time-Series Analysis, Data Visualization, R Markdown Reporting.
 
-* **Code:** [Link to GitHub Repository for this Project](https://github.com)
-* **Live Report/Dashboard:** [Link to RPubs or Shiny App](https://rpubs.com/)
+* **Code:** [Link to GitHub Repository for this Project](https://github.com/Phrease/R-Portfolio-Project/tree/main/analyses/colorado%20rent%20analysis)
 
 <br>
 
@@ -60,6 +59,7 @@ library(viridis)
 library(scales)
 
 # Access the Census Public Dataset for us income analysis
+# Uncomment the below to load the api key
 # census_api_key("22aeebd83dd72c7097e468b3963028eab9716cf8", install = TRUE)
 
 # Load variables for the 5-year ACS for the most recent available year (e.g.; 2022)
@@ -93,7 +93,7 @@ rent_burden_variables <- c(
 all_my_variables <- c(my_variables, rent_burden_variables)
 
 # Verify variables came through
-# print(all_my_variables)
+print(all_my_variables)
 
 # Get Median Gross Rent and Median Household Income by County for Colorado
 # Download data at the county level for Colorado, using the 5-year ACS
@@ -123,7 +123,7 @@ colorado_data_cleaned <- colorado_data_wide %>%
   # Correct way to remove the 'agr' attribute within a pipe
   # This sets the 'agr' attribute of the sf object to NULL, bypassing the st_set_agr function's strict checks
   { attr(., "agr") <- NULL; . } %>%
-  # 2. Rename the columns for clarity (these names correspond to our 'all_my_variables' vector's names)
+  # Rename the columns for clarity (these names correspond to our 'all_my_variables' vector's names)
   # IMPORTANT: The column names from pivot_wider will be "estimate_your_variable_name"
   # and "moe_your_variable_name"
   rename(

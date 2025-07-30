@@ -6,9 +6,6 @@ library(ggplot2)
 library(viridis)
 library(scales)
 
-# Access the Census Public Dataset for us income analysis
-census_api_key("22aeebd83dd72c7097e468b3963028eab9716cf8", install = TRUE)
-
 # Load variables for the 5-year ACS for the most recent available year (e.g.; 2022)
 # The 'cache = TRUE' argument makes the subsequent calls faster
 acs_variables = load_variables(year = 2022, dataset = "acs5", cache = TRUE)

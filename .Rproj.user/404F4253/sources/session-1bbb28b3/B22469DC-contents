@@ -1,0 +1,477 @@
+# Load the following libraries
+library(ggplot2)
+library(readr)
+library(forcats)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(lubridate)
+library(tidyverse)
+library(purrr)
+
+data <- read.csv("cleaned_das_members_reformatted.csv", stringsAsFactors = FALSE)
+
+## Temporal Analysis
+df_members <- data %>%
+  mutate(createdOn = mdy_hms(createdOn))
+
+df_members <- df_members %>%
+  mutate(signupYear = year(createdOn))
+
+str(df_members$signupYear)
+
+members_by_year <- df_members %>%
+  group_by(signupYear) %>%
+  summarise(
+    newMembers = n(),
+    .groups = 'drop'
+  )
+
+print(members_by_year)
+
+ggplot(data = members_by_year, aes(x = signupYear, y = newMembers))+
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = newMembers), vjust = -0.5, color = "yellow", fontface = "bold") +
+  labs(title = "New Members by Signup Year",
+       subtitle = "Last Data Pull: 7/20/2025",
+       x = "Year",
+       y = "Number of New Members") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+ggsave("New_Members_by_Signup_Year.png")
+
+## Temporal Analysis on MembershipLevel
+members_by_level <- df_members %>%
+  count(membershipLevel, sort = TRUE, name = "memberCount")
+
+print(members_by_level)
+
+ggplot(data = members_by_level, aes(x = reorder(membershipLevel, -memberCount), y = memberCount)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = memberCount), vjust = -0.5, color = "yellow", fontface = "bold") +
+  ylim(0, 450) +
+  labs(title = "Distribution of Membership Levels",
+       subtitle = "Last Data Pull: 7/20/2025",
+       x = "Membership Level",
+       y = "Number of Members") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+ggsave("Distribution_of_Membership_Levels.png")
+
+## Temporal Analysis on MembershipLevel broken down YoY
+df_members <- data %>%
+  mutate(signupYear = year(mdy_hms(createdOn)))
+
+members_by_year_level <- df_members %>%
+  filter(!is.na(signupYear)) %>%
+  group_by(signupYear, membershipLevel) %>%
+  summarise(
+    newMembers = n(),
+    .groups = 'drop'
+  )
+
+print(members_by_year_level)
+
+ggplot(data = members_by_year_level, aes(x = factor(signupYear), y = newMembers, fill = membershipLevel)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Breakdown of New Members by Level and Year",
+       subtitle = "Last Data Pull: 7/20/2025",
+       x = "Signup Year",
+       y = "Number of New Members",
+       fill = "Membership Level") +
+  theme_minimal() +
+  theme(
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    plot.title = element_text(color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+ggsave("Breakdown_of_New_Members_by_Level_and_Year.png")
+
+## Assign membership level to subscription prices
+price_map <- c(
+  "Dual / Family (w/Auto-Renewal)" = 60,
+  "Dual / Family (Single Year)" = 60,
+  "Regular (w/Auto-Renewal)" = 36,
+  "Regular (Single Year)" = 36,
+  "Student (w/Auto-Renewal)" = 12,
+  "Student (Single Year)" = 12
+)
+
+df_sub_members <- data %>%
+  mutate(subscriptionPrice = price_map[membershipLevel])
+
+## Drop subscription levels that are N/A
+price_df <- df_sub_members %>%
+  mutate(
+    membershipLevel = str_trim(membershipLevel),
+    subscriptionPrice = price_map[membershipLevel]
+  )
+
+price_df <- df_sub_members %>%
+  drop_na(subscriptionPrice) %>%
+  distinct(membershipLevel, subscriptionPrice)
+
+head(price_df)
+
+## Calculate revenue per membership level
+revenue_be_level <- df_sub_members %>%
+  filter(!is.na(subscriptionPrice)) %>%
+  group_by(membershipLevel) %>%
+  summarise(totalRevenue = sum(subscriptionPrice, na.rm = TRUE)) %>%
+  mutate(membershipLevel = fct_reorder(membershipLevel, totalRevenue))
+
+plot <- ggplot(revenue_be_level, aes(x = membershipLevel, y = totalRevenue)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = paste0("$", totalRevenue)),
+            vjust = -0.5, size = 4, fontface = "bold", color = "white") +
+  scale_y_continuous(expand = expansion(mult = c(0, .1))) +
+  labs(
+    title = "Subscription Prices by Membership Levels",
+    subtitle = "Last Data Pull: 7/20/2025",
+    x = "Membership Level",
+    y = "Total Revenue ($)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    plot.title = element_text(color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+print(plot)
+
+ggsave("Subscription_Prices_by_Membership_Levels.png")
+
+## Determine overall revenue from membership levels
+total_revenue <- sum(revenue_be_level$totalRevenue, na.rm = TRUE)
+total_revenue
+
+# Convert the 'memberSince' column to a proper date format and extract the year
+df_sub_member_by_year <- df_sub_members %>%
+  mutate(memberSince = mdy_hms(memberSince),
+         memberYear = year(memberSince))
+
+## Calculate total revenue per year and membership level
+revenue_by_year_level <- df_sub_member_by_year %>%
+  drop_na(subscriptionPrice, memberYear) %>%
+  group_by(memberYear, membershipLevel) %>%
+  summarise(totalRevenue = sum(subscriptionPrice, na.rm = TRUE), .groups = 'drop') %>%
+  # Order the levels by total revenue for a better legend order
+  mutate(membershipLevel = fct_reorder(membershipLevel, totalRevenue, .fun = sum))
+
+plot <- ggplot(revenue_by_year_level, aes(x = as.factor(memberYear), y = totalRevenue, fill = membershipLevel)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Total Subscription Revenue by Year and Membership Level",
+    subtitle = "Last Data Pull: 7/20/2025",
+    x = "Year",
+    y = "Total Revenue ($)",
+    fill = "Membership Level"
+  ) +
+  scale_fill_brewer(palette = "Paired") +
+  theme_minimal() +
+  theme(
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+print(plot)
+
+ggsave("Total_Subscription_Revenue_by_Year_and_Membership_Level.png")
+
+# Setup Y-o-Y delta for new members starting on the year 2018
+file_path <- "cleaned_das_members_reformatted.csv"
+start_year <- 2018
+
+# --- Data Loading and Initial Preparation ---
+# Load the dataset
+# Assuming a column like 'membership_start_date' or 'join_date' exists
+# Adjust column name as per your actual CSV file.
+# Also, assume the date column is in a clear date format.
+# If not, you might need to use `mdy()`, `ymd()`, or `dmy()` from lubridate to parse it.
+# --- Data Loading and Initial Preparation ---
+tryCatch({
+  # Using read_csv from the tidyverse (readr package) for better consistency
+  df_members <- read_csv(file_path)
+  
+  # Check if the expected date column exists
+  if (!"memberSince" %in% names(df_members)) {
+    stop("Error: 'memberSince' column not found. Please ensure the column name is correct (it is case-sensitive).")
+  }
+  
+  # Ensure the date column is in date format and extract the year.
+  # The 'memberSince' column appears to be in "MM/DD/YYYY HH:MM:SS" format.
+  # We will use mdy_hms from lubridate for robust parsing, then extract the year.
+  df_members <- df_members %>%
+    mutate(
+      # Convert to Date-time object first, then to Date for year extraction
+      member_start_date = mdy_hms(memberSince),
+      year_joined = year(member_start_date) # Extract year
+    )
+  
+  # --- Calculate New Members Per Year ---
+  # Filter for new members starting from the specified year
+  # Count the number of new members for each year
+  new_members_by_year <- df_members %>%
+    filter(year_joined >= start_year) %>%
+    group_by(year_joined) %>%
+    summarise(
+      total_new_members = n(),
+      .groups = 'drop' # Ungroup after summarising
+    ) %>%
+    # Arrange by year to ensure correct delta calculation
+    arrange(year_joined)
+  
+  # --- Calculate Year-over-Year Delta ---
+  # Calculate the year-over-year delta for new members
+  # We use lag() to get the previous year's count
+  delta_new_members <- new_members_by_year %>%
+    mutate(
+      previous_year_members = lag(total_new_members, n = 1, default = NA),
+      # Calculate delta: current year - previous year
+      delta = total_new_members - previous_year_members
+    )
+  
+  # --- Display Results ---
+  cat(paste0("Year-over-Year Delta for New Members (starting ", start_year, "):\n"))
+  print(delta_new_members)
+  
+  # Optional: For a cleaner view, you might want to remove the first row's NA delta
+  cat("\nDelta results excluding the first year (as delta is not applicable):\n")
+  print(delta_new_members %>% filter(!is.na(delta)))
+  
+  # --- Visualization ---
+  cat("\nGenerating Visualization...\n")
+  
+  # Create a ggplot for New Members and Delta
+  # We will use a dual-axis approach or separate plots if scales differ greatly.
+  # For simplicity, let's plot delta as a line and new members as bars.
+  # Create a ggplot for New Members and Delta
+  plot_new_members_delta <- ggplot(delta_new_members, aes(x = as.factor(year_joined))) +
+    geom_bar(aes(y = total_new_members, fill = "Total New Members"), stat = "identity", alpha = 0.7) +
+    # Explicitly filter out NA values for the line and point geometries
+    geom_line(data = delta_new_members %>% filter(!is.na(delta)), aes(y = delta, color = "Year-over-Year Delta", group = 1), size = 1.2) +
+    geom_point(data = delta_new_members %>% filter(!is.na(delta)), aes(y = delta, color = "Year-over-Year Delta"), size = 3) +
+    labs(
+      title = paste("Total New Members and Year-over-Year Delta (Starting", start_year, ")"),
+      subtitle = "Last Data Pull: 7/20/2025",
+      x = "Year",
+      y = "Count / Delta",
+      fill = "Metric",
+      color = "Metric"
+    ) +
+    scale_fill_manual(values = c("Total New Members" = "steelblue")) +
+    scale_color_manual(values = c("Year-over-Year Delta" = "darkred")) +
+    theme_minimal() +
+    theme(
+      legend.title = element_text(color = "white"),
+      legend.text = element_text(color = "white"),
+      legend.position = "bottom",
+      plot.title = element_text(hjust = 0.5, face = "bold", color = "white"),
+      plot.subtitle = element_text(color = "white"),
+      axis.title.x = element_text(color = "white"),
+      axis.title.y = element_text(color = "white"),
+      axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+      axis.text.y = element_text(color = "white")
+    )
+
+  # Print the plot
+  print(plot_new_members_delta)
+  
+  ggsave("Total_New_Members_and_Year-over-Year_Delta.png")
+  
+}, error = function(e) {
+  message("An error occurred: ", e$message)
+  # Updated error message to reflect the correct column name and case-sensitivity
+  message("Please ensure 'cleaned_das_members_reformatted.csv' exists and 'memberSince' column is correctly named and formatted.")
+})
+
+ggsave("Total_New_Members_and_Year-over-Year_Delta.png")
+
+# Create a visualization that displays current membership numbers, new members, and churned memebrs
+# Clean data before we begin
+
+df_all <- read.csv("cleaned_das_members.csv")
+
+# Convert relvant date columns to datetime objects
+# Use suppressWarning to avoid warnings for NaT conversions if desired
+df_all <- df_all %>%
+  mutate(
+    createdOn = mdy_hms(createdOn, tz = "America/Denver", quiet = TRUE),
+    profileLastUpdated = mdy_hms(profileLastUpdated, tz = "America/Denver", quiet = TRUE),
+    lastLogin = mdy_hms(lastLogin, tz = "America/Denver", quiet = TRUE),
+    memberSince = mdy_hms(memberSince, tz = "America/Denver", quiet = TRUE),
+    renewalDue = mdy_hms(renewalDue, tz = "America/Denver", quiet = TRUE),
+    renewalDateLastChanged = mdy_hms(renewalDateLastChanged, tz = "America/Denver", quiet = TRUE),
+    levelLastChange = mdy_hms(levelLastChanged, tz = "America/Denver", quiet = TRUE)
+  )
+
+# --- Calculate New Members ---
+# Group by 'memberSince' month and count unique users
+new_members <- df_all %>%
+  filter(!is.na(memberSince)) %>%
+  mutate(month_start = floor_date(memberSince, "month")) %>%
+  group_by(month_start) %>%
+  summarise(new_members_count = n()) %>%
+  ungroup() %>%
+  rename(Date = month_start)
+ 
+# Ensure Date column is new_members is POSIXct
+new_members <- new_members %>%
+  mutate(Date = as.POSIXct(Date, tz = "America/Denver")) %>%
+  select(Date, new_members_count)
+
+# --- Calculate Churned Users (Approximation) ---
+# Identify users who are not `Active` and have a past `renewalDue` date
+churned_df <- df_all %>%
+  filter(membershipStatus != "Active", !is.na(renewalDue))
+
+# Group by `renewalDue` month for these churned users
+churned_users <- churned_df %>%
+  mutate(month_start = floor_date(renewalDue, "month")) %>% # month_start will be POSIXct
+  group_by(month_start) %>%
+  summarise(churned_users_count = n()) %>%
+  ungroup() %>%
+  rename(Date = month_start)
+
+# Ensure Date column in churned_users is POSIXct
+churned_users <- churned_users %>%
+  mutate(Date = as.POSIXct(Date, tz = "America/Denver")) %>%
+  select(Date, churned_users_count)
+
+# --- Calculate Overall Active Members (Cumulative) ---
+# We'll create a sequence of months and for each month, count active members
+# who joined by that month and are currently active
+
+df_member_dates <- df_all %>%
+  select(memberSince, createdOn) %>%
+  pivot_longer(cols = everything(), names_to = "date_type", values_to = "date_value") %>%
+  filter(!is.na(date_value)) %>%
+  pull(date_value)
+
+all_relevant_dates <- c(
+  new_members$Date,
+  churned_users,
+  floor_date(Sys.Date(), "month") # Include current month for max date
+) %>%
+  unique() %>%
+  as.POSIXct(tz = "America/Denver") # Ensure all are POSIXct
+
+min_date_val_temp <- min(all_relevant_dates, na.rm = TRUE)
+max_date_val_temp <- max(all_relevant_dates, na.rm = TRUE)
+
+
+# Determine the overall date range for the plot
+if (is.infinite(min_date_val_temp) || is.na(min_date_val_temp)) {
+  min_date_val <- as.POSIXct("2000-01-01 00:00:00", tz = "America/Denver")
+} else {
+  min_date_val <- floor_date(min_date_val_temp, "month")
+}
+
+# Fallback for max_date_val if all dates are NA/Inf
+if (is.infinite(max_date_val_temp) || is.na(max_date_val_temp)) {
+  max_date_val <- floor_date(Sys.Date(), "month")
+} else {
+  max_date_val <- floor_date(max_date_val_temp, "month")
+}
+
+# Ensure min_date val is not after max_date_val
+if (min_date_val > max_date_val) {
+  max_date_val <- min_date_val + months(1) # Ensure at least one month range
+}
+
+# Create a sequence of months as POSIXt objects
+full_date_range <- seq.POSIXt(from = min_date_val, to = max_date_val, by = "month")
+
+overall_active_members_cumulative <- map_dfr(full_date_range, function(m_date) {
+  active_at_month <- df_all %>%
+    filter(
+      !is.na(memberSince),
+      memberSince <= (m_date + months(1) - seconds(1)), # Members joined by end of current month
+      membershipStatus == "Active"
+    ) %>%
+    nrow()
+  
+  # Explicitly create tibble with required columns and types
+  tibble(
+    Date = as.POSIXct(m_date, tz = "America/Denver"),
+    overall_active_members_count = as.numeric(active_at_month)
+  )
+})
+
+# --- Merge all data for plotting ---
+plot_df <- tibble(Date = as.POSIXct(full_date_range, tz = "America/Denver")) %>%
+  left_join(new_members, by = "Date") %>%
+  left_join(churned_users, by = "Date") %>%
+  left_join(overall_active_members_cumulative, by = "Date") %>%
+  replace_na(list(new_members_count = 0, churned_users_count = 0, overall_active_members_count = 0)) %>%
+  arrange(Date)
+
+# --- Plotting ---
+ggplot(plot_df, aes(x = Date)) +
+  geom_line(aes(y = new_members_count, color = "New Members"), size = 1) +
+  geom_point(aes(y = new_members_count, color = "New Members"), size = 2, shape = 16) +
+  geom_line(aes(y = churned_users_count, color = "Churned Users"), size = 1) +
+  geom_point(aes(y = churned_users_count, color = "Churned Users"), size = 2, shape = 4) +
+  geom_line(aes(y = overall_active_members_count, color = "Overall Active Members"), size = 1) +
+  geom_point(aes(y = overall_active_members_count, color = "Overall Active Members"), size = 2, shape = 15) +
+  labs(
+    title = "Membership Trends: New Members, Churnes Users, and Overall Active Members",
+    subtitle = "Last Data Pull: 7/20/2025",
+    x = "Date",
+    y = "Number of Members",
+    color = "Metric"
+  ) +
+  scale_color_manual(values = c("New Members" = "blue", "Churned Users" = "orange", "Overall Active Members" = "green")) +
+  theme_minimal() +
+  theme(
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+ggsave("Membership_Trends.png")
+
+
+
+

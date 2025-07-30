@@ -1,5 +1,5 @@
 # R-Portfolio-Project
-
+ 
 Colorado County Economic Analysis
 An exploratory data analysis of economic indicators across various counties in Colorado, focusing on rent burden and median income.
 
@@ -38,25 +38,6 @@ Ensure you have R and RStudio installed.
 Open the co_rent_analysis.R file to view the full data cleaning and analysis process.
 
 To view the final report, either open the index.html file in a web browser or knit the portfolio.Rmd file in RStudio.
-
-**IMPORTANT**
-
-This project uses the `tidycensus` R package to analyze census data. To run the scripts, you will need to acquire and install your own free Census Bureau API key.
-
-## 🔑 Setup Instructions
-
-1.  **Get a Key**: Request a free API key from the Census Bureau's website: [https://api.census.gov/data/key_signup.html](https://api.census.gov/data/key_signup.html)
-
-2.  **Install the Key**: Once you have your key, run the following command **in your R console** (do not add this line to the script). This will save the key for all future R sessions on your computer.
-
-    ```R
-    # Run this command only once in your console
-    census_api_key("PASTE_YOUR_KEY_HERE", install = TRUE)
-    ```
-
-3.  **Restart R**: After installing the key, restart your R session.
-
-4.  **Run the Script**: The R script should now run successfully without any modifications.
 
 Key Findings
 A few of the key insights from the analysis include:

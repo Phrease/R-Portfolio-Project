@@ -1,0 +1,145 @@
+# Load necessary packages for this analysis
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(ggplot2)
+
+# Load our dataset
+df <- read.csv("cleaned_das_members_reformatted.csv")
+
+# Data preperations and churn definition
+df <- df %>%
+  mutate(
+    memberSince = mdy_hms(memberSince, tz = "UTC", quiet = TRUE), # Use mdy_hms
+    renewalDue = mdy_hms(renewalDue, tz = "UTC", quiet = TRUE),     # Use mdy_hms
+    renewalDateLastChanged = mdy_hms(renewalDateLastChanged, tz = "UTC", quiet = TRUE), # Use mdy_hms
+    createdOn = mdy_hms(createdOn, tz = "UTC", quiet = TRUE),       # Use mdy_hms
+    profileLastUpdated = mdy_hms(profileLastUpdated, tz = "UTC", quiet = TRUE), # Use mdy_hms
+    lastLogin = mdy_hms(lastLogin, tz = "UTC", quiet = TRUE)         # Use mdy_hms
+  )
+
+# Define the 'current_date' for churn calculation consistency
+current_date_r <- ymd("2025-07-01")
+
+# Redefine 'is_churned' based on the conditions:
+# 1. 'archived' status is 'yes'
+# OR
+# 2. 'renewalDue' date is in the past is LESS THAN current date
+df <- df %>%
+  mutate(
+    is_churned = case_when(
+      archived == 'yes' ~ 1,
+      renewalDue < current_date_r ~1,
+      TRUE ~ 0 # Default to 0 (not churned) for all other cases
+    )
+  )
+
+# Churn Rate Calculation
+total_members_r <- nrow(df)
+churned_members_r <- sum(df$is_churned, na.rm = TRUE)
+overall_churn_rate_r <- (churned_members_r / total_members_r) * 100
+
+cat("Overall Churn Rate: ", round(overall_churn_rate_r, 2), "%\n")
+
+# Monthly Churn Counts Analysis
+df_churn_events_r <- df %>%
+  filter(is_churned == 1) %>%
+  rowwise() %>%
+  mutate(
+    # Determine the 'churn_date' based on the defined logic
+    # Using the EXACT PascalCase column names
+    churn_date = case_when(
+      archived == 'yes' & !is.na(profileLastUpdated) ~ profileLastUpdated,
+      archived == 'yes' & !is.na(lastLogin) ~ lastLogin,
+      archived == 'yes' ~ createdOn, # Fallback for archived if other dates are missing
+      !is.na(renewalDue) & renewalDue < current_date_r & membershipStatus != 'Active' ~ renewalDue,
+      TRUE ~ as.POSIXct(NA) # Use NA for POSIXct
+    )
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(churn_date)) # Remove rows where churn_date could not be determined
+
+# Ensure 'churn_date' is of appropriate date/datetime type for resampling
+df_churn_events_r$churn_date <- as.Date(df_churn_events_r$churn_date) # Convert to Date type for floor_Date
+
+monthly_churn_counts_r <- df_churn_events_r %>%
+  group_by(churn_month = floor_date(churn_date, "month")) %>%
+  summarise(churned_members_count = n()) %>%
+  ungroup() # Ungroup after summarizing
+
+cat("\nMonth Churn Counts (number of members who churned in that month):\n")
+print(monthly_churn_counts_r)
+
+# Save monthly churn counts to a CSV file
+write.csv(monthly_churn_counts_r, "monthly_churn_counts_redefined_R.csv", row.names = FALSE)
+cat("\nMonthly churn counts saved to 'monthly_churn_counts_redefined_R.csv'\n")
+
+# Data Preperations for visualization
+# Convert renewalDue to Data type, coercing errors to NA
+df$renewalDue <- as.Date(df$renewalDue, format = "%m/%d/%Y", origin = "1970-01-01")
+
+# Get the current date
+current_date_r <- as.Date(Sys.Date())
+
+# Data Aggregations for Visualization
+df$memberSinceYear <- year(as.Date(df$memberSince, format = "%m/%d/%Y"))
+
+# Filter out rows where 'memberSinceYear' is NA
+df_filtered <- df %>%
+  filter(!is.na(memberSinceYear))
+
+# Group by 'memberSinceYear' and count new users and churned users
+yearly_summary <- df_filtered %>%
+  group_by(memberSinceYear) %>%
+  summarise(
+    new_users = n(), # Count of all users who joined in that year
+    churned_users = sum(is_churned == 1, na.rm = TRUE) # Count of churned users
+  ) %>%
+  rename(Year = memberSinceYear)
+
+# Melt the datafrom for ggplot2 to create a group
+yearly_summary_long <- yearly_summary %>%
+  pivot_longer(
+    cols = c("new_users", "churned_users"),
+    names_to = "User_Type",
+    values_to = "Count"
+  ) %>%
+  mutate(
+    User_Type = dplyr::recode(User_Type,
+                              "new_users" = "New Users",
+                              "churned_users" = "Churned Users"
+                              ),
+    # Crucial: Ensure User_Type is a factor with the desired levels
+    User_Type = factor(User_Type, levels = c("New Users", "Churned Users"))
+  )
+
+# Visualization using ggplot2
+
+ggplot(yearly_summary_long, aes(x = as.factor(Year), y = Count, fill = User_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "New Users vs. Churned Users Over Time",
+    subtitle = "Last Data Pull: 7/20/2025",
+    x = "Year",
+    y = "Number of Users",
+    fill = "User Type"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("New Users" = "steelblue", "Churned Users" = "darkorange")) +
+  theme(
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, color = "white"),
+    plot.subtitle = element_text(color = "white"),
+    axis.title.x = element_text(color = "white"),
+    axis.title.y = element_text(color = "white"),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white")
+  )
+
+ggsave("New_Users_vs_Churned_Users.png")
+
+
+
+

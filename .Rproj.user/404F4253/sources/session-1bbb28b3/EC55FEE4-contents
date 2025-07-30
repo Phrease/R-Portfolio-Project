@@ -1,0 +1,151 @@
+# Load the following libraries
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(isotree)
+library(patchwork)
+
+# Set a dark theme for all plots
+theme_set(theme_minimal(base_size = 12) +
+          theme(
+            plot.background = element_rect(fill = "#0d1117", color = NA),
+            panel.background = element_rect(fill = "#0d1117", color = NA),
+            panel.grid = element_line(color = "#444444"),
+            text = element_text(color = "white"),
+            axis.text = element_text(color = "white"),
+            plot.title = element_text(hjust = 0.5, size = 16),
+            legend.position = "bottom",
+            legend.background = element_rect(fill = "#0d1117"),
+            legend.key = element_rect(fill = "#0d1117")
+          ))
+
+# Load and prepare data for visulaization
+df <- read_csv("query_results_final.csv", show_col_types = FALSE) %>%
+  mutate(Extracted_Timestamp = ymd_hms(Extracted_Timestamp)) %>%
+  filter(!is.na(Extracted_Timestamp))
+
+cat(sprintf(" - Successfully loaded %d rows.\n", nrow(df)))
+
+# Time-series & Activity Patterns
+# Generate activity heatmap
+activity_heatmap_data <- df %>%
+  mutate(
+    day_of_week = wday(Extracted_Timestamp, label = TRUE, week_start = 1),
+    hour_of_day = hour(Extracted_Timestamp)
+  ) %>%
+  count(day_of_week, hour_of_day) %>%
+  rename(count = n)
+
+heatmap_plot <- ggplot(activity_heatmap_data, aes(x = hour_of_day, y = day_of_week, fill = count)) +
+  geom_tile(color = "#0d1117") +
+  scale_fill_viridis_c() +
+  labs(
+    title = "Broadcast Activity Heatmap (by Day of Week and Hour)",
+    x = "Hour of Day (UTC)",
+    y = "Day of Week",
+    fill = "Count"
+  )
+
+# Anomoly Detection
+daily_broadcasts <- df %>%
+  mutate(date = as.Date(Extracted_Timestamp)) %>%
+  count(date)
+
+# Use Isolation Forest to find anomolies
+iso_model <- isolation.forest(daily_broadcasts, ndim=1, ntrees=100, missing_action="fail")
+anomaly_scores <- predict(iso_model, daily_broadcasts)
+
+anomalous_days <- daily_broadcasts %>%
+  mutate(anomaly_score = anomaly_scores) %>%
+  filter(anomaly_score > 0.65) # Threshold may need tuning
+
+anomaly_plot <- ggplot(daily_broadcasts, aes(x = date, y = n)) +
+  geom_line(color = "cyan") +
+  geom_point(data = anomalous_days, aes(x = date, y = n), color = "red", size = 4) +
+  labs(
+    title = "Anomaly Detection in Daily Broadcasts",
+    x = "Date",
+    y = "Number of Broadcasts"
+  )
+
+# FC Doctrine Preference Heatmap (NO CONSTRAINTS)
+top_fcs <- df %>% filter(!is.na(FC_NAME) & FC_NAME != "") %>% count(FC_NAME, sort = TRUE) %>% top_n(10) %>% pull(FC_NAME)
+top_doctrines <- df %>% filter(!is.na(DOCTRINE) & DOCTRINE != "") %>% count(DOCTRINE, sort = TRUE) %>% top_n(10) %>% pull(DOCTRINE)
+
+fc_doctrine_data <- df %>%
+  filter(FC_NAME %in% top_fcs, DOCTRINE %in% top_doctrines) %>%
+  count(FC_NAME, DOCTRINE)
+
+fc_doctrine_plot <- ggplot(fc_doctrine_data, aes(x = DOCTRINE, y = FC_NAME, fill = n)) +
+  geom_tile(color = "#0d1117") +
+  geom_text(aes(label = n), color = "white", size = 3) +
+  scale_fill_viridis_c(option="inferno") +
+  labs(title = "FC Doctrine Preference Heatmap", x = "Doctrine", y = "FC") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# FC Doctrine Preference Heatmap (PAP_TYPE = STRATEGIC)
+strategic_df <- df %>% filter(PAP_TYPE == "Strategic")
+
+# Find the top FCs and Doctrines within the Strategic fleets
+top_fcs_strategic <- strategic_df %>%
+  filter(!is.na(FC_NAME) & FC_NAME != "") %>%
+  count(FC_NAME, sort = TRUE) %>%
+  top_n(10) %>%
+  pull(FC_NAME)
+
+top_doctrines_strategic <- strategic_df %>%
+  filter(!is.na(DOCTRINE) & DOCTRINE != "") %>%
+  count(DOCTRINE, sort = TRUE) %>%
+  top_n(10) %>%
+  pull(DOCTRINE)
+
+# Create the data for the heatmap using the strategic-only data
+fc_doctrine_data <- strategic_df %>%
+  filter(FC_NAME %in% top_fcs_strategic, DOCTRINE %in% top_doctrines_strategic) %>%
+  count(FC_NAME, DOCTRINE)
+
+# Create the plot using the filtered data
+fc_doctrine_plot <- ggplot(fc_doctrine_data, aes(x = DOCTRINE, y = FC_NAME, fill = n)) +
+  geom_tile(color = "#0d1117") +
+  geom_text(aes(label = n), color = "white", size = 3) +
+  scale_fill_viridis_c(option="inferno") +
+  labs(title = "PAP_TYPE = Strategic, FC Doctrine Preference Heatmap", x = "Doctrine", y = "FC") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Association Analysis
+srp_by_doctrine_plot <- df %>%
+  filter(!is.na(SRP) & SRP != "") %>%
+  count(DOCTRINE, sort = TRUE) %>%
+  top_n(10) %>%
+  ggplot(aes(x = n, y = fct_reorder(DOCTRINE, n))) +
+  geom_col(fill = "#C71585") +
+  labs(title = "Top 10 Doctrines with SRP", x = "Number of SRP Mentions", y = "Doctrine")
+
+srp_by_fc_plot <- df %>%
+  filter(!is.na(SRP) & SRP != "") %>%
+  count(FC_NAME, sort = TRUE) %>%
+  top_n(10) %>%
+  ggplot(aes(x = n, y = fct_reorder(FC_NAME, n))) +
+  geom_col(fill = "#483D8B") +
+  labs(title = "Top 10 FCs with SRP", x = "Number of SRP Mentions", y = "FC")
+
+srp_combined_plot <- srp_by_doctrine_plot + srp_by_fc_plot +
+  plot_annotation(title = "SRP Association Analysis",
+                  theme = theme(plot.title = element_text(hjust = 0.5, size = 20)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

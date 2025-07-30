@@ -1,0 +1,90 @@
+# Load the calculate package
+library(reticulate)
+
+# Specify the Python environment to use
+use_python("C:/Users/durki/AppData/Local/r-miniconda/envs/r-reticulate-forecast/python.exe", required = TRUE)
+
+# Import our libraries
+pd <- import("pandas")
+sm <- import("statsmodels.api")
+plt <- import("matplotlib.pyplot")
+
+# Load data into an R data frame
+df_r <- read.csv("cleaned_das_members_reformatted.csv")
+
+# Convert the R data frame to a Python pandas DataFrame
+py_df <- r_to_py(df_r)
+
+# Process the data using pandas and then convert 'createdOn' to datetime objects in Python
+py_df[['createdOn']] <- pd$to_datetime(py_df[['createdOn']], format='%m/%d/%Y %H:%M:%S')
+
+# Set 'CreatedOn' as the index and resample to monthly start frequency
+monthly_members_ts_py <- py_df$set_index('createdOn')$resample('MS')$size()$to_frame(name='new_members')
+
+# Determine the number of periods to forecast (NOW USING R's DATE FUNCTIONS)
+last_date_r <- as.Date(reticulate::py_to_r(monthly_members_ts_py$index$max()))
+
+# Create pandas Timestamps for consistent date handling in Python
+end_of_2025_r <- as.Date(reticulate::py_to_r(pd$Timestamp("2025-12-01")))
+end_of_2026_r <- as.Date(reticulate::py_to_r(pd$Timestamp("2026-12-01")))
+
+# Calculate the number of months from the last historical date to the target end dates
+last_year <- as.numeric(format(last_date_r, "%Y"))
+last_month <- as.numeric(format(last_date_r, "%m"))
+
+target_2025_year <- as.numeric(format(end_of_2025_r, "%Y"))
+target_2025_month <- as.numeric(format(end_of_2025_r, "%m"))
+
+target_2026_year <- as.numeric(format(end_of_2026_r, "%Y"))
+target_2026_month <- as.numeric(format(end_of_2026_r, "%m"))
+
+periods_to_2025_end <- (target_2025_year * 12 + target_2025_month) - (last_year * 12 + last_month) + 1
+periods_to_2026_end <- (target_2026_year * 12 + target_2026_month) - (last_year * 12 + last_month) + 1
+
+# Fit an Exponential Smoothing (ETS) model using statsmodel
+model_fit_py <- sm$tsa$ExponentialSmoothing(
+  monthly_members_ts_py$new_members,
+  trend='add',
+  seasonal='add',
+  seasonal_periods=12,
+  initialization_method='estimated'
+)$fit()
+
+# Generate forecasts
+forecast_steps <- as.integer(max(periods_to_2025_end, periods_to_2026_end))
+forecast_py <- model_fit_py$forecast(steps=forecast_steps)
+
+# Convert forecast_py from Python Series to R numeric vector with names
+forecast_r_vector <- reticulate::py_to_r(forecast_py)
+
+# Format the target dates to match the names of the forecast_r_vector (e.g., "2025-12-01 00:00:00")
+# This assumes the names are in the standard POSIXct string format.
+target_date_2025_str <- format(end_of_2025_r, "%Y-%m-%d %H:%M:%S")
+target_date_2026_str <- format(end_of_2026_r, "%Y-%m-%d %H:%M:%S")
+
+forecast_2025_value <- forecast_r_vector[target_date_2025_str]
+forecast_2026_value <- forecast_r_vector[target_date_2026_str]
+
+cat("Forecasted new members for December 2025:", round(forecast_2025_value), "\n")
+cat("Forecasted new members for December 2026:", round(forecast_2026_value), "\n")
+
+# Prepare historical data for plotting in R
+historical_dates_r <- reticulate::py_to_r(monthly_members_ts_py$index)
+historical_values_r <- reticulate::py_to_r(monthly_members_ts_py$new_members)
+
+# Prepare forecast data for plotting in R (using forecast_r_vector created earlier)
+forecast_dates_r <- as.POSIXct(names(forecast_r_vector)) # Convert names (strings) to POSIXct
+forecast_values_r <- forecast_r_vector
+
+# Plotting the historical data and the forecast using matplotlib (Python)
+# Ensure forecast_py and monthly_members_ts_py still have their original Python types for plotting
+plt$figure(figsize=c(12, 6))
+plt$plot(historical_dates_r, historical_values_r, label='Historical New Members')
+plt$plot(forecast_dates_r, forecast_values_r, label='Forecasted New Members', linestyle='--')
+plt$title('Monthly New Members Forecast using Exponential Smoothing (Python via R)\nLast Data Pull: 7/20/2025')
+plt$xlabel('Date')
+plt$ylabel('Number of New Members')
+plt$legend()
+plt$grid(TRUE)
+plt$show()
+plt$savefig('new_members_forecast.png')

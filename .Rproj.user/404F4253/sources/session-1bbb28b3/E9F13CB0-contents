@@ -1,0 +1,182 @@
+# Import the following libraries
+library(tidyverse)
+library(lubridate)
+library(igraph)
+library(ggraph)
+library(survival)
+library(survminer)
+library(arulesSequences)
+
+# Set a dark theme for all plots
+theme_set(theme_minimal(base_size = 12) +
+            theme(
+              plot.background = element_rect(fill = "#0d1117", color = NA),
+              panel.background = element_rect(fill = "#0d1117", color = NA),
+              panel.grid = element_line(color = "#444444"),
+              text = element_text(color = "white"),
+              axis.text = element_text(color = "white"),
+              plot.title = element_text(hjust = 0.5, size = 16),
+              legend.position = "none"
+            ))
+
+# Prep dataset
+df <- read_csv("query_results_final.csv", show_col_types = FALSE) %>%
+  mutate(Extracted_Timestamp = ymd_hms(Extracted_Timestamp)) %>%
+  filter(!is.na(Extracted_Timestamp)) %>%
+  arrange(Extracted_Timestamp)
+
+# Social Network Analysis (SNA)
+edge_list <- df %>%
+  select(broadcaster1 = BROADCASTER_USERNAME, time1 = Extracted_Timestamp) %>%
+  cross_join(df %>% select(broadcaster2 = BROADCASTER_USERNAME, time2 = Extracted_Timestamp)) %>%
+  filter(broadcaster1 < broadcaster2, abs(difftime(time1, time2, units = "hours")) <= 1) %>%
+  count(broadcaster1, broadcaster2) %>%
+  select(from = broadcaster1, to = broadcaster2, weight = n)
+
+# Create the graph object
+g_full <- graph_from_data_frame(edge_list,  directed = FALSE)
+
+# Isolate the largest connected component of the graph
+components <- components(g_full, mode="weak")
+main_component_nodes <- V(g_full)$name[components$membership == which.max(components$csize)]
+g <- induced_subgraph(g_full, main_component_nodes)
+
+# Calculate centrality and communities
+V(g)$degree <- degree(g, mode = "all")
+V(g)$community <- as.factor(cluster_louvain(g)$membership)
+
+# Create a data frame for labeling ONLY the top 10 most connected nodes
+top_nodes_names <- V(g)$name[order(V(g)$degree, decreasing = TRUE)[1:10]]
+
+# Create a 'label' attribute: show name for top nodes, empty string for others
+V(g)$label <- ifelse(V(g)$name %in% top_nodes_names, V(g)$name, "")
+
+# Create the visualization
+network_plot <- ggraph(g, layout = 'fr') +
+  geom_edge_fan(aes(alpha = after_stat(index)), color = 'gray', width = 0.5, show.legend = FALSE) +
+  geom_node_point(aes(size = degree, color = community), alpha = 0.8) +
+  geom_node_text(aes(label = label), repel = TRUE, size = 4, color = "white", bg.color = "black", bg.r = 0.15) + 
+  labs(title = "Social Network of Broadcasters (Size by Activity, Color by Community)")
+
+ggsave("social_network_analysis_R.png", plot = network_plot, width = 20, height = 20, dpi = 150)
+
+# Survival Analysis
+survival_data <- df %>%
+  select(BROADCAST_TYPE, Extracted_Timestamp) %>%
+  filter(BROADCAST_TYPE %in% c("coord", "skirmishbot")) %>%
+  # For each FC, order their broadcasts by time
+  arrange(Extracted_Timestamp) %>%
+  # Create a new column that finds the timestamp of the *next* 'op' broadcast
+  mutate(
+    is_skirmish = if_else(BROADCAST_TYPE == 'skirmishbot', Extracted_Timestamp, NA_POSIXct_),
+    next_skirmish_time = lead(is_skirmish)
+  ) %>%
+  # We only care about 'coord' events for now
+  filter(BROADCAST_TYPE == 'coord') %>%
+  # Calculate the duration and whether the event was "observed" (happened with 3 hour)
+  mutate(
+    duration_minutes = as.numeric(difftime(next_skirmish_time, Extracted_Timestamp, units = "mins")) # If not observed, use the max duration
+  ) %>%
+  filter(!is.na(duration_minutes))
+
+if (nrow(survival_data) > 0) {
+  # For this analysis, every event is "observed" because I found a pair.
+  # We will fit a standard Kaplan-Meier curve.
+  fit <- survfit(Surv(duration_minutes) ~ 1, data = survival_data)
+  
+  survival_plot <- ggsurvplot(
+    fit,
+    data = survival_data,
+    conf.int = TRUE,
+    palette = c("#32CD32"),
+    legend = "none",
+    ggtheme = theme_minimal () + theme(
+      plot.background = element_rect(fill = "#0d1117", color = NA),
+      panel.background = element_rect(fill = "#0d1117", color = NA),
+      panel.grid = element_line(color = "#444444"),
+      text = element_text(color = "white"),
+      axis.text = element_text(color = "white"),
+      plot.title = element_text(hjust = 0.5, size = 16)
+    )
+  ) +
+    labs(
+      title = "Survival Curve: Time from 'Coord' to Next 'Skirmishbot' Broadcast",
+      x = "Time in Minutes",
+      y = "Probability of Skirmishbot Not Yet Broadcast"
+    )
+  
+  ggsave("survival_analysis_R.png", plot = print(survival_plot), width = 14, height = 8)
+} else {
+  cat(" - No 'coord' -> 'skrimishbot' sequences found.\n")
+}
+
+# Sequential pattern mining
+# preparing data for cleaning
+# Create a unique session id for each FC on a given day
+sequences_data <- df %>%
+  filter(!is.na(BROADCASTER_USERNAME), BROADCASTER_USERNAME != "") %>%
+  arrange(BROADCASTER_USERNAME, Extracted_Timestamp) %>%
+  group_by(BROADCASTER_USERNAME) %>%
+  # Create columns for the next two events in the sequence
+  mutate(
+    next_event_1 = lead(BROADCAST_TYPE, 1),
+    next_event_2 = lead(BROADCAST_TYPE, 2)
+  ) %>%
+  ungroup () %>%
+  # Remove rows where there isn't a complete sequence
+  filter(!is.na(next_event_1))
+
+# Find the top 2-event sequences
+top_2_event_sequences <- sequences_data %>%
+  count(BROADCAST_TYPE, next_event_1, sort = TRUE) %>%
+  head(10)
+
+cat("\n - Top 10 Most Frequent 2-Event Sequences:\n")
+if(nrow(top_2_event_sequences) > 0){
+  top_2_event_sequences %>%
+    mutate(Pattern = paste(BROADCAST_TYPE, "->", next_event_1)) %>%
+    select(Pattern, Occurrences = n) %>%
+    print()
+} else {
+  cat("   - No 2event sequences found.\n")
+}
+
+top_3_event_sequences <- sequences_data %>%
+  filter(!is.na(next_event_2)) %>%
+  count(BROADCAST_TYPE, next_event_1, next_event_2, sort = TRUE) %>%
+  head(10)
+
+cat("\n  -  Top 10 Most Frequent 3-Event Sequences:\n")
+if(nrow(top_3_event_sequences) > 0) {
+  top_3_event_sequences %>%
+    mutate(Pattern = paste(BROADCAST_TYPE, "->", next_event_1, "->", next_event_2)) %>%
+    select(Pattern, Occurrences = n) %>%
+    print()
+} else {
+  cat("  -  No 3-event sequences found.\n")
+}
+
+
+
+
+
+
+
+
+
+
+### debug
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,175 @@
+# Install the following libraries
+library(DBI)
+library(RSQLite)
+library(tm)
+library(wordcloud2)
+library(dplyr)
+library(ggplot2)
+
+### SETUP CONNECTION TO SQLITE DATABASE ###
+# Define the paths to my two SQLite database files
+db_path_main <- "C:\\Users\\durki\\OneDrive\\Desktop\\gooner part 1 html converter\\output\\logs.db"
+db_path_attached_1 <- "C:\\Users\\durki\\OneDrive\\Desktop\\gooner part 2 html converter\\output\\logs.db"
+db_path_attached_2 <- "C:\\Users\\durki\\OneDrive\\Desktop\\gooner part 3 html converter\\output\\logs.db"
+
+# Establish connection to the database
+con <- dbConnect(RSQLite::SQLite(), dbname = db_path_main)
+
+# Check if the main connection was successful
+if (dbIsValid(con)) {
+  message(paste("Successfully connected to the main database:", db_path_main))
+} else {
+  stop(paste("Failed to connect to the main database:", db_path_main,
+             "\nPlease check the path and ensure the file exists."))
+}
+
+# Attach the second database file
+# The 'AS attached_db' gives it an alias I'll use in my SQL queries
+tryCatch({
+  dbExecute(con, paste0("ATTACH DATABASE '", db_path_attached_1, "' AS attached_db_1;"))
+  message(paste("Successfully attached database:", db_path_attached_1))
+}, error = function(e) {
+  stop(paste("Failed to attach database:", db_path_attached_1,
+             "\nError: ", e$message,
+             "\nPlease check the path and ensure the file exists and is a valid SQLite DB."))
+})
+
+# The 'AS attached_db_2' gives it another unique alias
+tryCatch({
+  dbExecute(con, paste0("ATTACH DATABASE '", db_path_attached_2, "' AS attached_db_2;"))
+  message(paste("Successfully attached database:", db_path_attached_2))
+}, error = function(e) {
+  stop(paste("Failed to attach database:", db_path_attached_2,
+             "\nError: ", e$message,
+             "\nPlease check the path and ensure the file exists and is a valid SQLite DB."))
+})
+
+# Define my SQL query
+# This query uses UNION ALL to combine results from tables in both the main and attached databases.
+# IMPORTANT: Ensure 'html_logs_54ebd8a9' and 'html_logs_6d76dfe9' are the ACTUAL table names
+# found *inside* their respective .db files.
+sql_query <- "
+-- This query combines multiple log tables, cleans the timestamp,
+-- and removes near-duplicate entries before outputting the final dataset.
+WITH CombinedBroadcasts AS (
+    -- Combine all source tables into a single dataset
+    SELECT
+        Timestamp, Message_Content, Broadcast_Metadata, SRP, Broadcast_Audience, Broadcast_Type,
+        Broadcaster_Username, COMMS, DOCTRINE, FC_NAME, FORMUP_LOCATION,
+        LOCATION, OP, PAP_TYPE, SHIPS, 'html_logs_fa0bdacf' AS Original_Table
+    FROM html_logs_fa0bdacf
+
+    UNION ALL
+
+    SELECT
+        Timestamp, Message_Content, Broadcast_Metadata, SRP, Broadcast_Audience, Broadcast_Type,
+        Broadcaster_Username, COMMS, DOCTRINE, FC_NAME, FORMUP_LOCATION,
+        LOCATION, OP, PAP_TYPE, SHIPS, 'html_logs_6d76dfe9' AS Original_Table
+    FROM html_logs_6d76dfe9
+	
+	UNION ALL
+	
+	SELECT
+        Timestamp, Message_Content, Broadcast_Metadata, SRP, Broadcast_Audience, Broadcast_Type,
+        Broadcaster_Username, COMMS, DOCTRINE, FC_NAME, FORMUP_LOCATION,
+        LOCATION, OP, PAP_TYPE, SHIPS, 'html_logs_381b8b87' AS Original_Table
+    FROM html_logs_381b8b87
+),
+
+ParsedBroadcasts AS (
+    -- Extract and clean the timestamp from the metadata string
+    SELECT
+        *,
+        -- This CASE statement handles various timestamp formats found in the metadata
+        CASE
+            WHEN INSTR(Broadcast_Metadata, ' at ') > 0
+            THEN SUBSTR(Broadcast_Metadata, INSTR(Broadcast_Metadata, ' at ') + 4, 19)
+            ELSE NULL
+        END AS Extracted_Timestamp_str
+    FROM CombinedBroadcasts
+),
+
+TimeCalculatedBroadcasts AS (
+    -- Calculate the time difference between potentially duplicate broadcasts
+    SELECT
+        *,
+        -- Use the LAG window function to get the timestamp of the previous message
+        -- from the same user, of the same type, with the same content.
+        LAG(Extracted_Timestamp_str, 1) OVER (
+            PARTITION BY Broadcaster_Username, Broadcast_Type, Message_Content
+            ORDER BY Extracted_Timestamp_str
+        ) as prev_timestamp_str
+    FROM ParsedBroadcasts
+    WHERE Extracted_Timestamp_str IS NOT NULL
+)
+
+-- Final result: Select only the broadcasts that are not near-duplicates
+SELECT
+    Timestamp, Message_Content, Broadcast_Metadata, SRP, Broadcast_Audience, Broadcast_Type,
+    Broadcaster_Username, COMMS, DOCTRINE, FC_NAME, FORMUP_LOCATION,
+    LOCATION, OP, PAP_TYPE, SHIPS, Original_Table,
+    Extracted_Timestamp_str AS Extracted_Timestamp
+FROM
+    TimeCalculatedBroadcasts
+WHERE
+    -- Keep the row if it's the first message in a group (prev_timestamp_str is NULL)
+    -- OR if the time since the last identical message is greater than 5 seconds.
+    prev_timestamp_str IS NULL
+    OR (strftime('%s', Extracted_Timestamp_str) - strftime('%s', prev_timestamp_str) > 5)
+ORDER BY
+	Extracted_Timestamp DESC;"
+
+# Query the first table
+df_results <- dbGetQuery(con, sql_query)
+
+# Disconnect from the attached database and then the main database
+dbExecute(con, "DETACH DATABASE attached_db_1;") # Detach the secondary database first
+dbExecute(con, "DETACH DATABASE attached_db_2;") # Detach the tertiary database second
+dbDisconnect(con) # Disconnect from the main database last
+message("Disconnected from all SQLite databases.")
+
+### ------------------------------------------------------------------------------------ ###
+
+# Histogram of Messages
+# Do a little cleaning before visualization
+df_results$cohort_date <- as.Date(df_results$cohort_date)
+
+# Histrogram time
+broadcast_plot <- ggplot(df_results, aes(x = cohort_date, y = daily_broadcast_count)) +
+  geom_col(fill = "#4e79a7") +
+  labs(
+    title = "Daily Broadcast Count Over Time: PAP_TYPE = Strategic",
+    x = "Date",
+    y = "Number of Broadcasts"
+  ) +
+  theme_minimal() +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y")
+
+print(broadcast_plot)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

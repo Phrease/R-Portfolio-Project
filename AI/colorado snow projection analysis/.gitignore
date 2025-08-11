@@ -1,0 +1,13 @@
+# R and RStudio temporary files
+.Rproj.user
+.Rhistory
+.Rdata
+.Ruserdata
+
+# Ignore large data files (important!)
+*.csv
+*.rds
+
+# macOS and Windows junk files
+.DS_Store
+Thumbs.db
